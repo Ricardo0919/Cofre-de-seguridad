@@ -4,7 +4,8 @@
 #include "Wire.h"
 #include <Servo.h>
 
-// Definir el pin del servo
+// Definir pines
+#define BUTTON_PIN 7
 int SERVO_PIN = 9;
 
 // Crear un objeto para el sensor y para el servo
@@ -14,7 +15,9 @@ Servo myServo;
 // Variables para almacenar las lecturas del acelerómetro
 int ax, ay, az;
 
-// Variable de estado del servo
+// Variables de estado del botón y salida del servo
+bool buttonState = LOW;
+bool lastButtonState = HIGH;
 bool outputState = LOW;
 
 // Variables para manejar el tiempo de lectura del sensor
@@ -31,31 +34,37 @@ void setup() {
   if (sensor.testConnection()) Serial.println("Sensor MPU6050 iniciado correctamente");
   else Serial.println("Error al iniciar el sensor MPU6050");
 
-  // Configurar el servo
-  myServo.attach(SERVO_PIN);       // Conectar el servo
-  myServo.write(0);                // Posicionar el servo en 0 grados
+  // Configurar botón y servo
+  pinMode(BUTTON_PIN, INPUT_PULLUP);  // Configurar botón con resistencia interna
+  myServo.attach(SERVO_PIN);          // Conectar el servo
+  myServo.write(0);                   // Posicionar el servo en 0 grados
 }
 
 // Bucle principal
 void loop() {
-  // Verificar si hay datos disponibles en el puerto serial
-  if (Serial.available() > 0) {
-    // Leer el valor enviado desde la entrada serial
-    int input = Serial.parseInt();
+  // Leer el estado del botón
+  bool currentButtonState = digitalRead(BUTTON_PIN);
 
-    // Controlar el servo basado en el valor recibido (1 para 90 grados, 0 para 0 grados)
-    if (input == 1) {
-      outputState = HIGH;
-      myServo.write(90);  // Mover el servo a 90 grados
-    } else if (input == 0) {
-      outputState = LOW;
-      myServo.write(0);   // Mover el servo a 0 grados
+  // Verificar si el botón ha cambiado de estado
+  if (currentButtonState == LOW && lastButtonState == HIGH) {
+    // Alternar el estado de la salida
+    outputState = !outputState;
+
+    // Mover el servo según el estado de salida
+    if (outputState) {
+      myServo.write(90);      // Mover el servo a 90 grados
+    } else {
+      myServo.write(0);       // Regresar el servo a 0 grados
     }
 
-    // Mostrar el estado actual del servo en el monitor serial
     Serial.print("Estado del Servo (0: 0 grados, 1: 90 grados): ");
     Serial.println(outputState);
+
+    delay(50);  // Evitar rebotes del botón
   }
+
+  // Actualizar el estado anterior del botón
+  lastButtonState = currentButtonState;
 
   // Verificar si ha pasado el tiempo necesario para leer el sensor
   unsigned long currentMillis = millis();
