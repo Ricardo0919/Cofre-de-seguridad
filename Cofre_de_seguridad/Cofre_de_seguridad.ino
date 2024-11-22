@@ -82,15 +82,15 @@ void loop() {
         float accel_ang_y = atan(ay / sqrt(pow(ax, 2) + pow(az, 2))) * (180.0 / 3.14);
 
         // Mostrar los ángulos de inclinación en el monitor serial
-        Serial.print("Inclinación en X: ");
+        Serial.print("X: ");
         Serial.print(accel_ang_x); 
-        Serial.print("\tInclinación en Y: ");
+        Serial.print("\tY: ");
         Serial.println(accel_ang_y);
 
         // Enviar los datos del acelerómetro al ESP32
-        espSerial.print("Inclinación en X: ");
+        espSerial.print("X: ");
         espSerial.print(accel_ang_x);
-        espSerial.print("\tInclinación en Y: ");
+        espSerial.print("\tY: ");
         espSerial.println(accel_ang_y);
     }
 
@@ -136,6 +136,26 @@ void loop() {
         }
     }
 
+    // Revisar comandos desde ESP32
+    if (espSerial.available()) {
+        String comando = espSerial.readStringUntil('\n');
+        comando.trim();
+
+        if (comando == "BLOCK") {
+            Serial.println("Bloqueo activado por alerta.");
+            // Hacer sonar el buzzer
+            digitalWrite(BUZZER_PIN, HIGH);
+            delay(1000);
+            digitalWrite(BUZZER_PIN, LOW);
+
+            // Bloquear el servo
+            lockServo.attach(SERVO_PIN);
+            lockServo.write(0); // Posición bloqueada
+            delay(500);
+            lockServo.detach();
+        }
+    }
+
     // Mover el servo si debería moverse
     if (shouldMoveServo) {
         lockServo.attach(SERVO_PIN); // Conectar el servo
@@ -144,7 +164,7 @@ void loop() {
             servoPosition = false;
             Serial.println("Servo en posición original");
         } else {
-            lockServo.write(180); // Mover el servo a la posición asignada
+            lockServo.write(90); // Mover el servo a la posición asignada
             servoPosition = true;
             Serial.println("Servo en posición asignada");
         }

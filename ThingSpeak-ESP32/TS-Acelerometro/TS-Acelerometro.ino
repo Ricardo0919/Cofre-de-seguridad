@@ -2,17 +2,21 @@
 #include "WiFi.h"
 #include <HardwareSerial.h>
 
-#define RX_PIN 16  // Pin RX del ESP32 (conectar al TX del Arduino Uno)
-#define TX_PIN 17  // Pin TX del ESP32 (conectar al RX del Arduino Uno)
+#define RX_PIN 19  // Pin RX del ESP32 (conectar al TX del Arduino Uno)
+#define TX_PIN 21  // Pin TX del ESP32 (conectar al RX del Arduino Uno)
 
-const char* ssid = "Papuseñal";                        // SSID de vuestro router.
-const char* password = "82341950";                // Contraseña de vuestro router.
+const char* ssid = "Ricardo";                        // SSID de vuestro router
+const char* password = "ricki1903#$";                // Contraseña de vuestro router
 
-unsigned long channelID = 2746417;                // ID de vuestro canal.
-const char* WriteAPIKey = "1PJBDYNGF74R7QSC";     // Write API Key de vuestro canal.
+unsigned long channelID = 2746417;                // ID de vuestro canal
+const char* WriteAPIKey = "1PJBDYNGF74R7QSC";     // Write API Key de vuestro canal
 
 WiFiClient cliente;
 HardwareSerial MySerial(1);  // Usamos el puerto serial 1 del ESP32
+
+float latestX = 0, latestY = 0;  // Variables para almacenar los últimos datos válidos
+unsigned long lastWriteTime = 0;  // Tiempo de la última escritura en ThingSpeak
+const unsigned long writeInterval = 15000;  // Intervalo mínimo entre escrituras (15 segundos)
 
 void setup() {
   Serial.begin(9600); // Iniciar la comunicación serial
@@ -30,46 +34,53 @@ void setup() {
 }
 
 void loop() {
-  recibirYEnviarDatosAcelerometro();
-  delay(2000);  // Espera de 2 segundos entre cada envío de datos
+  // Escuchar alertas desde MATLAB
+  if (cliente.available()) {
+    String alerta = cliente.readStringUntil('\n');
+    alerta.trim();
+
+    if (alerta == "ALERTA") {
+      Serial.println("Alerta recibida. Enviando bloqueo al Arduino...");
+      MySerial.println("BLOCK"); // Enviar mensaje al Arduino Uno
+    }
+  }
+
+  leerDatosAcelerometro(); // Leer y enviar datos del acelerómetro a ThingSpeak
 }
 
-void recibirYEnviarDatosAcelerometro() {
+void leerDatosAcelerometro() {
   if (MySerial.available()) {
     String datosAcelerometro = MySerial.readStringUntil('\n');  // Leer datos hasta el fin de línea
     Serial.print("Datos del acelerómetro recibidos: ");
     Serial.println(datosAcelerometro);
 
-    // Asumimos que los datos vienen en el formato "Inclinación en X: <valor>\tInclinación en Y: <valor>"
-    int idxX = datosAcelerometro.indexOf("Inclinación en X: ");
-    int idxY = datosAcelerometro.indexOf("\tInclinación en Y: ");
+    // Asumimos que los datos vienen en el formato "X: <valor>\tY: <valor>"
+    int idxX = datosAcelerometro.indexOf("X: ");
+    int idxY = datosAcelerometro.indexOf("\tY: ");
 
     if (idxX != -1 && idxY != -1) {
       // Extraer los valores y limpiar caracteres adicionales
-      String inclinacionXStr = datosAcelerometro.substring(idxX + 18, idxY);
+      String inclinacionXStr = datosAcelerometro.substring(idxX + 3, idxY);
       inclinacionXStr.trim();
-      String inclinacionYStr = datosAcelerometro.substring(idxY + 18);
+      String inclinacionYStr = datosAcelerometro.substring(idxY + 3);
       inclinacionYStr.trim();
 
-      // Verificar que inclinacionYStr solo tenga caracteres numéricos o de punto decimal
-      inclinacionYStr.replace(":", ""); // Remover ":" en caso de que esté al inicio
-
+      // Convertir las cadenas a flotantes
       float inclinacionX = inclinacionXStr.toFloat();
       float inclinacionY = inclinacionYStr.toFloat();
 
-      Serial.print("Inclinación en X: ");
-      Serial.println(inclinacionX);
-      Serial.print("Inclinación en Y: ");
-      Serial.println(inclinacionY);
-
-      // Solo enviar datos si ambos son válidos
       if (!isnan(inclinacionX) && !isnan(inclinacionY)) {
-        ThingSpeak.setField(1, inclinacionX);
-        ThingSpeak.setField(2, inclinacionY);
-        if (ThingSpeak.writeFields(channelID, WriteAPIKey) == 200) {
-          Serial.println("Datos del acelerómetro enviados a ThingSpeak!");
-        } else {
-          Serial.println("Error: No se pudieron enviar los datos a ThingSpeak.");
+        latestX = inclinacionX;
+        latestY = inclinacionY;
+        Serial.print("X: ");
+        Serial.println(latestX);
+        Serial.print("Y: ");
+        Serial.println(latestY);
+
+        // Enviar datos si ha pasado el intervalo mínimo
+        if (millis() - lastWriteTime >= writeInterval) {
+          enviarDatosAThingSpeak();
+          lastWriteTime = millis();  // Actualizar el tiempo de la última escritura
         }
       } else {
         Serial.println("Error: Datos no válidos recibidos.");
@@ -77,5 +88,15 @@ void recibirYEnviarDatosAcelerometro() {
     } else {
       Serial.println("Error: Formato de datos del acelerómetro incorrecto.");
     }
+  }
+}
+
+void enviarDatosAThingSpeak() {
+  ThingSpeak.setField(1, latestX);
+  ThingSpeak.setField(2, latestY);
+  if (ThingSpeak.writeFields(channelID, WriteAPIKey) == 200) {
+    Serial.println("Datos del acelerómetro enviados a ThingSpeak!");
+  } else {
+    Serial.println("Error: No se pudieron enviar los datos a ThingSpeak.");
   }
 }
