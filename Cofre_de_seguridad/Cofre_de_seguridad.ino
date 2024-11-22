@@ -1,79 +1,155 @@
-// Librerías necesarias para controlar el MPU6050, I2C y el Servo
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Servo.h>
 #include "I2Cdev.h"
 #include "MPU6050.h"
 #include "Wire.h"
-#include <Servo.h>
+#include <SoftwareSerial.h>
 
-// Definir el pin del servo
-int SERVO_PIN = 9;
+#define RST_PIN 9  // Pin 9 para el reset del RC522
+#define SS_PIN 10  // Pin 10 para el SS (SDA) del RC522
+#define BUZZER_PIN 8 // Pin para el buzzer
+#define SERVO_PIN 7  // Nuevo pin para el servo
 
-// Crear un objeto para el sensor y para el servo
+MFRC522 mfrc522(SS_PIN, RST_PIN); // Creamos el objeto para el RC522
+
+// Crear un objeto para el sensor
 MPU6050 sensor;
-Servo myServo;
 
 // Variables para almacenar las lecturas del acelerómetro
 int ax, ay, az;
-
-// Variable de estado del servo
-bool outputState = LOW;
 
 // Variables para manejar el tiempo de lectura del sensor
 unsigned long previousMillis = 0;
 const long interval = 1000;  // Intervalo de 1 segundo para leer el sensor
 
-// Configuración inicial
+// Crear un objeto Servo
+Servo lockServo;
+
+// Buffer para almacenar el ID de la tarjeta
+String cardID = "";
+String accessTag = ""; // Variable para almacenar el primer tag registrado
+
+// Definir pines para SoftwareSerial
+SoftwareSerial espSerial(2, 3); // RX, TX
+
+// Variable para el estado del servo
+bool servoPosition = false; // false = posición original, true = posición asignada
+bool shouldMoveServo = false; // Variable para indicar si el servo debería moverse
+
 void setup() {
-  Serial.begin(9600);             // Iniciar comunicación serial
-  Wire.begin();                    // Iniciar comunicación I²C
-  sensor.initialize();             // Iniciar el sensor MPU6050
+    Serial.begin(9600); // Iniciar la comunicación serial
+    espSerial.begin(9600); // Iniciar la comunicación serial para el ESP32
+    Wire.begin();                    // Iniciar comunicación I²C
+    sensor.initialize();             // Iniciar el sensor MPU6050
 
-  // Verificar conexión con el sensor
-  if (sensor.testConnection()) Serial.println("Sensor MPU6050 iniciado correctamente");
-  else Serial.println("Error al iniciar el sensor MPU6050");
+    // Verificar conexión con el sensor
+    if (sensor.testConnection()) Serial.println("Sensor MPU6050 iniciado correctamente");
+    else Serial.println("Error al iniciar el sensor MPU6050");
 
-  // Configurar el servo
-  myServo.attach(SERVO_PIN);       // Conectar el servo
-  myServo.write(0);                // Posicionar el servo en 0 grados
+    // Iniciar el bus SPI y el lector RFID
+    SPI.begin();
+    mfrc522.PCD_Init();
+
+    pinMode(BUZZER_PIN, OUTPUT); // Configurar el pin del buzzer como salida
+
+    // Ajustar la ganancia de la antena al máximo
+    mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
+
+    // Conectar el servo al nuevo pin
+    lockServo.attach(SERVO_PIN);
+    
+    // Colocar el servo en la posición original (0 grados)
+    lockServo.write(0);
+    lockServo.detach(); // Desconectar el servo
+
+    // Mensaje inicial
+    Serial.println("Setup completo. Esperando tarjetas RFID y datos del acelerómetro...");
 }
 
-// Bucle principal
 void loop() {
-  // Verificar si hay datos disponibles en el puerto serial
-  if (Serial.available() > 0) {
-    // Leer el valor enviado desde la entrada serial
-    int input = Serial.parseInt();
+    // Verificar si ha pasado el tiempo necesario para leer el sensor
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+        // Guardar el tiempo de la última lectura
+        previousMillis = currentMillis;
 
-    // Controlar el servo basado en el valor recibido (1 para 90 grados, 0 para 0 grados)
-    if (input == 1) {
-      outputState = HIGH;
-      myServo.write(90);  // Mover el servo a 90 grados
-    } else if (input == 0) {
-      outputState = LOW;
-      myServo.write(0);   // Mover el servo a 0 grados
+        // Leer los valores del acelerómetro
+        sensor.getAcceleration(&ax, &ay, &az);
+
+        // Calcular los ángulos de inclinación en los ejes X e Y
+        float accel_ang_x = atan(ax / sqrt(pow(ay, 2) + pow(az, 2))) * (180.0 / 3.14);
+        float accel_ang_y = atan(ay / sqrt(pow(ax, 2) + pow(az, 2))) * (180.0 / 3.14);
+
+        // Mostrar los ángulos de inclinación en el monitor serial
+        Serial.print("Inclinación en X: ");
+        Serial.print(accel_ang_x); 
+        Serial.print("\tInclinación en Y: ");
+        Serial.println(accel_ang_y);
+
+        // Enviar los datos del acelerómetro al ESP32
+        espSerial.print("Inclinación en X: ");
+        espSerial.print(accel_ang_x);
+        espSerial.print("\tInclinación en Y: ");
+        espSerial.println(accel_ang_y);
     }
 
-    // Mostrar el estado actual del servo en el monitor serial
-    Serial.print("Estado del Servo (0: 0 grados, 1: 90 grados): ");
-    Serial.println(outputState);
-  }
+    // Revisamos si hay nuevas tarjetas presentes
+    if (mfrc522.PICC_IsNewCardPresent()) {
+        // Seleccionamos una tarjeta
+        if (mfrc522.PICC_ReadCardSerial()) {
+            // Enviamos serialmente su UID en formato decimal
+            Serial.print("Card UID (Decimal):");
+            cardID = ""; // Reiniciar el buffer para el nuevo UID
+            for (byte i = 0; i < mfrc522.uid.size; i++) {
+                Serial.print(" ");
+                Serial.print(mfrc522.uid.uidByte[i], DEC);
+                cardID += String(mfrc522.uid.uidByte[i], DEC);
+            }
+            Serial.println();
 
-  // Verificar si ha pasado el tiempo necesario para leer el sensor
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= interval) {
-    // Guardar el tiempo de la última lectura
-    previousMillis = currentMillis;
+            // Hacer sonar el buzzer
+            digitalWrite(BUZZER_PIN, HIGH); // Encender el buzzer
+            delay(100); // Mantener el buzzer encendido por 100 milisegundos
+            digitalWrite(BUZZER_PIN, LOW); // Apagar el buzzer
 
-    // Leer los valores del acelerómetro
-    sensor.getAcceleration(&ax, &ay, &az);
+            // Si no hay una tarjeta de acceso registrada, registrar la actual
+            if (accessTag == "") {
+                accessTag = cardID;
+                Serial.print("Tarjeta de acceso registrada: ");
+                Serial.println(accessTag);
+            }
 
-    // Calcular los ángulos de inclinación en los ejes X e Y
-    float accel_ang_x = atan(ax / sqrt(pow(ay, 2) + pow(az, 2))) * (180.0 / 3.14);
-    float accel_ang_y = atan(ay / sqrt(pow(ax, 2) + pow(az, 2))) * (180.0 / 3.14);
+            // Verificar si el ID leído coincide con el ID de acceso registrado
+            bool tagFound = (cardID == accessTag);
 
-    // Mostrar los ángulos de inclinación en el monitor serial
-    Serial.print("Inclinación en X: ");
-    Serial.print(accel_ang_x); 
-    Serial.print("\tInclinación en Y: ");
-    Serial.println(accel_ang_y);
-  }
+            // Mostrar el resultado y mover el servo si se encuentra un ID conocido
+            if (tagFound) {
+                Serial.println("Tarjeta reconocida");
+                shouldMoveServo = true;
+            } else {
+                Serial.println("Tarjeta desconocida");
+            }
+            
+            // Terminamos la lectura de la tarjeta actual
+            mfrc522.PICC_HaltA();
+        }
+    }
+
+    // Mover el servo si debería moverse
+    if (shouldMoveServo) {
+        lockServo.attach(SERVO_PIN); // Conectar el servo
+        if (servoPosition) {
+            lockServo.write(0); // Mover el servo a la posición original
+            servoPosition = false;
+            Serial.println("Servo en posición original");
+        } else {
+            lockServo.write(180); // Mover el servo a la posición asignada
+            servoPosition = true;
+            Serial.println("Servo en posición asignada");
+        }
+        delay(500); // Esperar para evitar impulsos
+        lockServo.detach(); // Desconectar el servo
+        shouldMoveServo = false; // Resetear el indicador
+    }
 }
