@@ -1,6 +1,5 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
-#include <ThingSpeak.h>
 #include <HardwareSerial.h>
 
 // Configuración WiFi
@@ -8,26 +7,26 @@ const char* ssid = "Ricardo2";
 const char* password = "ricki1903#$";
 
 // Configuración MQTT
+// Casa
+//const char* mqttServer = "192.168.1.102";
+// TEC
 const char* mqttServer = "192.168.209.2";
 const int mqttPort = 1883;
-const char* topicAlert = "esp32_alert";
-const char* topicStatus = "esp32_status";
-
-// Configuración ThingSpeak
-unsigned long channelID = 2746417;       // ID del canal de ThingSpeak
-const char* WriteAPIKey = "1PJBDYNGF74R7QSC"; // API Key de escritura
-WiFiClient wifiClient;
-PubSubClient mqttClient(wifiClient);
+const char* topicAlert = "esp32/alert";
+const char* topicStatus = "esp32/status";
+const char* topicEjeX = "esp32/ejex";
+const char* topicEjeY = "esp32/ejey";
 
 // Configuración Serial
 #define RX_PIN 19 // RX del ESP32 conectado al TX del Arduino
 #define TX_PIN 21 // TX del ESP32 conectado al RX del Arduino
 HardwareSerial MySerial(1);
 
-// Variables para ThingSpeak
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+// Variables para datos del acelerómetro
 float latestX = 0, latestY = 0;
-unsigned long lastWriteTime = 0;
-const unsigned long writeInterval = 15000; // Intervalo entre escrituras (15s)
 
 void callback(char* topic, byte* payload, unsigned int length) {
   String message = "";
@@ -44,12 +43,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if (message == "BLOCK") {
       Serial.println("Recibido BLOCK desde MQTT. Enviando al Arduino...");
       MySerial.println("BLOCK");
-    } else if (message == "NONE") {
-      Serial.println("Recibido NONE desde MQTT. Enviando al Arduino...");
-      MySerial.println("NONE");
+      Serial.println("Comando 'BLOCK' enviado al Arduino.");
     }
     // Confirmación de mensaje procesado
-    mqttClient.publish("esp32/status", "Mensaje procesado");
+    mqttClient.publish(topicStatus, "Mensaje procesado");
   }
 }
 
@@ -82,13 +79,9 @@ void setup() {
       delay(2000);
     }
   }
-
-  // Configurar ThingSpeak
-  ThingSpeak.begin(wifiClient);
 }
 
 void loop() {
-  
   if (!mqttClient.connected()) {
     reconnect();
   }
@@ -102,9 +95,6 @@ void loop() {
 }
 
 void procesarDatosAcelerometro(String datosAcelerometro) {
-  //Serial.print("Datos del acelerómetro recibidos: ");
-  //Serial.println(datosAcelerometro);
-
   // Asumimos formato "X: <valor>\tY: <valor>"
   int idxX = datosAcelerometro.indexOf("X: ");
   int idxY = datosAcelerometro.indexOf("\tY: ");
@@ -123,43 +113,18 @@ void procesarDatosAcelerometro(String datosAcelerometro) {
       latestX = inclinacionX;
       latestY = inclinacionY;
 
-      // Enviar datos a ThingSpeak si corresponde
-      if (millis() - lastWriteTime >= writeInterval) {
-        enviarDatosAThingSpeak();
-        lastWriteTime = millis();
-      }
-    } else {
-      Serial.println("Error: Datos no válidos recibidos.");
+      // Publicar datos en MQTT
+      mqttClient.publish(topicEjeX, String(latestX).c_str());
+      mqttClient.publish(topicEjeY, String(latestY).c_str());
     }
-  } else {
-    Serial.println("Error: Formato de datos del acelerómetro incorrecto.");
-  }
-}
-
-void enviarDatosAThingSpeak() {
-  ThingSpeak.setField(1, latestX);
-  ThingSpeak.setField(2, latestY);
-  if (ThingSpeak.writeFields(channelID, WriteAPIKey) == 200) {
-    Serial.println("Datos del acelerómetro enviados a ThingSpeak:");
-    Serial.print("X: ");
-    Serial.println(latestX);
-    Serial.print("Y: ");
-    Serial.println(latestY);
-  } else {
-    Serial.println("Error: No se pudieron enviar los datos a ThingSpeak.");
   }
 }
 
 void reconnect() {
   while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
     if (mqttClient.connect("ESP32Client")) {
-      Serial.println("Connected");
-      mqttClient.subscribe("esp32/alert");
+      mqttClient.subscribe(topicAlert);
     } else {
-      Serial.print("Failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" trying again in 5 seconds");
       delay(5000);
     }
   }

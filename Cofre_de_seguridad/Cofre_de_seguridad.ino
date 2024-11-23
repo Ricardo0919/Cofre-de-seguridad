@@ -6,10 +6,10 @@
 #include "Wire.h"
 #include <SoftwareSerial.h>
 
-#define RST_PIN 9  // Pin 9 para el reset del RC522
-#define SS_PIN 10  // Pin 10 para el SS (SDA) del RC522
+#define RST_PIN 9   // Pin 9 para el reset del RC522
+#define SS_PIN 10   // Pin 10 para el SS (SDA) del RC522
 #define BUZZER_PIN 8 // Pin para el buzzer
-#define SERVO_PIN 7  // Nuevo pin para el servo
+#define SERVO_PIN 7  // Pin para el servo
 
 MFRC522 mfrc522(SS_PIN, RST_PIN); // Creamos el objeto para el RC522
 
@@ -17,7 +17,7 @@ MFRC522 mfrc522(SS_PIN, RST_PIN); // Creamos el objeto para el RC522
 MPU6050 sensor;
 
 // Variables para almacenar las lecturas del acelerómetro
-int ax, ay, az;
+int16_t ax, ay, az;
 
 // Variables para manejar el tiempo de lectura del sensor
 unsigned long previousMillis = 0;
@@ -33,9 +33,14 @@ String accessTag = ""; // Variable para almacenar el primer tag registrado
 // Definir pines para SoftwareSerial
 SoftwareSerial espSerial(2, 3); // RX, TX
 
-// Variable para el estado del servo
-bool servoPosition = false; // false = posición original, true = posición asignada
+// Variables para el estado del servo
+bool servoPosition = false; // false = posición original (0 grados), true = posición asignada (90 grados)
 bool shouldMoveServo = false; // Variable para indicar si el servo debería moverse
+
+// Variables para el bloqueo por alerta
+bool blockedByAlert = false;          // Indica si el servo está bloqueado por alerta
+unsigned long blockStartTime = 0;     // Tiempo en el que se inició el bloqueo
+int previousServoPosition = 0;        // Posición previa del servo antes del bloqueo
 
 void setup() {
     Serial.begin(9600); // Iniciar la comunicación serial
@@ -56,11 +61,12 @@ void setup() {
     // Ajustar la ganancia de la antena al máximo
     mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
 
-    // Conectar el servo al nuevo pin
+    // Conectar el servo al pin
     lockServo.attach(SERVO_PIN);
     
     // Colocar el servo en la posición original (0 grados)
     lockServo.write(0);
+    delay(500);
     lockServo.detach(); // Desconectar el servo
 
     // Mensaje inicial
@@ -82,10 +88,10 @@ void loop() {
         float accel_ang_y = atan(ay / sqrt(pow(ax, 2) + pow(az, 2))) * (180.0 / 3.14);
 
         // Mostrar los ángulos de inclinación en el monitor serial
-        Serial.print("X: ");
-        Serial.print(accel_ang_x); 
-        Serial.print("\tY: ");
-        Serial.println(accel_ang_y);
+        // Serial.print("X: ");
+        // Serial.print(accel_ang_x); 
+        // Serial.print("\tY: ");
+        // Serial.println(accel_ang_y);
 
         // Enviar los datos del acelerómetro al ESP32
         espSerial.print("X: ");
@@ -126,7 +132,11 @@ void loop() {
             // Mostrar el resultado y mover el servo si se encuentra un ID conocido
             if (tagFound) {
                 Serial.println("Tarjeta reconocida");
-                shouldMoveServo = true;
+                if (!blockedByAlert) { // Solo mover el servo si no está bloqueado por alerta
+                    shouldMoveServo = true;
+                } else {
+                    Serial.println("El servo está bloqueado por alerta. Espera a que se desbloquee.");
+                }
             } else {
                 Serial.println("Tarjeta desconocida");
             }
@@ -141,30 +151,56 @@ void loop() {
         String comando = espSerial.readStringUntil('\n');
         comando.trim();
 
+        Serial.print("Comando recibido desde ESP32: ");
+        Serial.println(comando);
+
         if (comando == "BLOCK") {
             Serial.println("Bloqueo activado por alerta.");
+            
+            // Mover el servo a la posición bloqueada
+            lockServo.attach(SERVO_PIN);
+            lockServo.write(0); // Posición bloqueada (0 grados)
+            delay(500);
+            lockServo.detach();
+            
             // Hacer sonar el buzzer
             digitalWrite(BUZZER_PIN, HIGH);
             delay(1000);
             digitalWrite(BUZZER_PIN, LOW);
+            delay(1000);
+            digitalWrite(BUZZER_PIN, HIGH);
+            delay(1000);
+            digitalWrite(BUZZER_PIN, LOW);
 
-            // Bloquear el servo
-            lockServo.attach(SERVO_PIN);
-            lockServo.write(0); // Posición bloqueada
-            delay(500);
-            lockServo.detach();
+            // Iniciar el bloqueo
+            blockedByAlert = true;
+            blockStartTime = millis();
         }
     }
 
-    // Mover el servo si debería moverse
-    if (shouldMoveServo) {
+    // Comprobar si el servo está bloqueado por alerta y si han pasado 3 segundos
+    if (blockedByAlert) {
+        if (millis() - blockStartTime >= 3000) {
+            // 3 segundos han pasado, regresar el servo a la posición anterior
+            lockServo.attach(SERVO_PIN);
+            lockServo.write(previousServoPosition); // Regresar a la posición previa
+            delay(500);
+            lockServo.detach();
+
+            blockedByAlert = false;
+            Serial.println("Bloqueo desactivado, servo regresó a posición anterior.");
+        }
+    }
+
+    // Mover el servo si debería moverse y no está bloqueado por alerta
+    if (shouldMoveServo && !blockedByAlert) {
         lockServo.attach(SERVO_PIN); // Conectar el servo
         if (servoPosition) {
-            lockServo.write(0); // Mover el servo a la posición original
+            lockServo.write(0); // Mover el servo a la posición original (0 grados)
             servoPosition = false;
             Serial.println("Servo en posición original");
         } else {
-            lockServo.write(90); // Mover el servo a la posición asignada
+            lockServo.write(20); // Mover el servo a la posición asignada (90 grados)
             servoPosition = true;
             Serial.println("Servo en posición asignada");
         }
