@@ -1,23 +1,30 @@
-thresholdFactor = 2; % Factor para el umbral dinámico
-maxDataLength = 30; % Longitud máxima de los arreglos de datos
+% Factor para el umbral dinámico
+thresholdFactor = 3; 
+maxDataLength = 30; 
 
 % Conexión al broker MQTT
-mqttClient = mqttclient('tcp://192.168.209.2:1883');
+mqttClient = mqttclient('tcp://10.25.100.90:1883');
 
 % Suscribirse a los tópicos con función de callback
 subscribe(mqttClient, 'esp32/ejex', 'Callback', @messageReceived);
 subscribe(mqttClient, 'esp32/ejey', 'Callback', @messageReceived);
 
+% Variable global para detener el script
+global stopScript;
+stopScript = false;
+
 disp('Iniciando monitoreo...');
 
 % Mantener el script en ejecución
-while true
-    pause(1);
+while ~stopScript
+    pause(1); % Pausa para permitir otras operaciones
 end
 
-% Definir la función de callback al final del script
+disp('Monitoreo detenido.');
+
+% Función de callback para manejar mensajes MQTT
 function messageReceived(topic, data)
-    % Acceder a las variables del script principal
+    % Variables persistentes
     persistent inclinacionX inclinacionY prevX prevY mqttClient thresholdFactor maxDataLength newDataX newDataY
 
     % Inicializar variables persistentes en la primera llamada
@@ -26,7 +33,7 @@ function messageReceived(topic, data)
         inclinacionY = [];
         prevX = [];
         prevY = [];
-        thresholdFactor = 2; % Ajustado
+        thresholdFactor = 3; % Ajustado
         maxDataLength = 30;
         mqttClient = evalin('base', 'mqttClient');
         newDataX = false;
@@ -118,4 +125,10 @@ function messageReceived(topic, data)
             disp('No hay suficientes datos para procesar.');
         end
     end
+end
+
+% Función para detener el monitoreo
+function stopMonitoring()
+    global stopScript;
+    stopScript = true;
 end

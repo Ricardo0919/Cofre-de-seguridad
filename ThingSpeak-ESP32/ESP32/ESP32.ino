@@ -3,14 +3,14 @@
 #include <HardwareSerial.h>
 
 // Configuración WiFi
-const char* ssid = "Ricardo2";
+const char* ssid = "Ricardo";
 const char* password = "ricki1903#$";
 
 // Configuración MQTT
 // Casa
 //const char* mqttServer = "192.168.1.102";
 // TEC
-const char* mqttServer = "192.168.209.2";
+const char* mqttServer = "10.25.100.90";
 const int mqttPort = 1883;
 const char* topicAlert = "esp32/alert";
 const char* topicStatus = "esp32/status";

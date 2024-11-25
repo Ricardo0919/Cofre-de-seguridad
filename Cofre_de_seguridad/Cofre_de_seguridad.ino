@@ -10,6 +10,7 @@
 #define SS_PIN 10   // Pin 10 para el SS (SDA) del RC522
 #define BUZZER_PIN 8 // Pin para el buzzer
 #define SERVO_PIN 7  // Pin para el servo
+int currentServoPosition = 0;
 
 MFRC522 mfrc522(SS_PIN, RST_PIN); // Creamos el objeto para el RC522
 
@@ -21,7 +22,7 @@ int16_t ax, ay, az;
 
 // Variables para manejar el tiempo de lectura del sensor
 unsigned long previousMillis = 0;
-const long interval = 1000;  // Intervalo de 1 segundo para leer el sensor
+const long interval = 200;  // Intervalo de 1 segundo para leer el sensor
 
 // Crear un objeto Servo
 Servo lockServo;
@@ -160,6 +161,7 @@ void loop() {
             // Mover el servo a la posición bloqueada
             lockServo.attach(SERVO_PIN);
             lockServo.write(0); // Posición bloqueada (0 grados)
+            currentServoPosition = 0;
             delay(500);
             lockServo.detach();
             
@@ -198,10 +200,12 @@ void loop() {
         if (servoPosition) {
             lockServo.write(0); // Mover el servo a la posición original (0 grados)
             servoPosition = false;
+            currentServoPosition = 0;
             Serial.println("Servo en posición original");
         } else {
-            lockServo.write(20); // Mover el servo a la posición asignada (90 grados)
+            lockServo.write(20); // Mover el servo a la posición asignada (20 grados)
             servoPosition = true;
+            currentServoPosition = 20;
             Serial.println("Servo en posición asignada");
         }
         delay(500); // Esperar para evitar impulsos
