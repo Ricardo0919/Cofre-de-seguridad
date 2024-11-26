@@ -1,3 +1,5 @@
+clear all
+clc
 % Factor para el umbral dinámico
 thresholdFactor = 3; 
 maxDataLength = 30; 
@@ -18,9 +20,23 @@ disp('Iniciando monitoreo...');
 % Mantener el script en ejecución
 while ~stopScript
     pause(1); % Pausa para permitir otras operaciones
+    drawnow; % Procesar eventos en segundo plano, incluyendo cambios en variables globales
 end
 
+% Detener el monitoreo
+unsubscribe(mqttClient, 'esp32/ejex');
+unsubscribe(mqttClient, 'esp32/ejey');
+disp('Suscripciones canceladas.');
+clear mqttClient; % Cierra la conexión al broker
+disp('Conexión MQTT cerrada.');
 disp('Monitoreo detenido.');
+
+% Función para detener el monitoreo
+function stopMonitoring()
+    global stopScript;
+    stopScript = true;
+    disp('Se solicitó detener el monitoreo.');
+end
 
 % Función de callback para manejar mensajes MQTT
 function messageReceived(topic, data)
@@ -125,10 +141,4 @@ function messageReceived(topic, data)
             disp('No hay suficientes datos para procesar.');
         end
     end
-end
-
-% Función para detener el monitoreo
-function stopMonitoring()
-    global stopScript;
-    stopScript = true;
 end
